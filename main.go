@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"net/http"
 	"os"
 	"os/exec"
@@ -11,8 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"image/color"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -29,9 +28,8 @@ import (
 // --- Constants & Types ---
 
 const (
-	AppVersion     = "v1.0.0"
-	RepoOwner      = "Carbon6600"
-	RepoName       = "starlink-monitor"
+	AppVersion     = "v1.0.1"
+	RepoPath       = "Carbon6600/starlink-monitor"
 	DefaultIP      = "192.168.100.1:9200"
 	PollInterval   = 3 * time.Second
 	RequestTimeout = 2 * time.Second
@@ -59,10 +57,11 @@ type DeviceState struct {
 }
 
 type AppState struct {
-	Devices map[string]*DeviceState
-	mu      sync.Mutex
-	LogBox  *widget.Entry
-	ListBox *fyne.Container
+	Devices      map[string]*DeviceState
+	mu           sync.Mutex
+	LogBox       *widget.Entry
+	ListBox      *fyne.Container
+	VersionLabel *widget.Label
 }
 
 var state = &AppState{
@@ -105,12 +104,17 @@ func openBrowser(url string) error {
 }
 
 func checkGitHubUpdate(win fyne.Window) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", RepoOwner, RepoName)
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: 5 * time.Second}
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", RepoPath)
+	resp, err := client.Get(url)
 	if err != nil {
 		return // Silent failure for update check
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
 
 	var release GitHubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
@@ -118,11 +122,18 @@ func checkGitHubUpdate(win fyne.Window) {
 	}
 
 	if release.TagName != AppVersion {
+		state.mu.Lock()
+		if state.VersionLabel != nil {
+			state.VersionLabel.SetText(fmt.Sprintf("Версія: %s (Доступне оновлення: %s)", AppVersion, release.TagName))
+		}
+		state.mu.Unlock()
+		addLog(fmt.Sprintf("Нова версія програми доступна: %s", release.TagName))
+
 		dialog.ShowConfirm("New Version Available",
 			fmt.Sprintf("A new version %s is available. Would you like to download it?", release.TagName),
 			func(confirmed bool) {
 				if confirmed {
-					releaseURL := fmt.Sprintf("https://github.com/%s/%s/releases/latest", RepoOwner, RepoName)
+					releaseURL := fmt.Sprintf("https://github.com/%s/releases/latest", RepoPath)
 					openBrowser(releaseURL)
 				}
 			}, win)
@@ -292,7 +303,7 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 	})
 
 	row := container.NewGridWithColumns(6,
-		ipLabel, statusLabel, gpsLabel, fwText, autoGPSCheck,
+		ipLabel, statusLabel, gpsLabel, container.NewMax(fwText), autoGPSCheck,
 		container.NewHBox(disableBtn, deleteBtn),
 	)
 
@@ -401,11 +412,9 @@ func main() {
 	// --- Bottom Section: Logs ---
 	state.LogBox = widget.NewMultiLineEntry()
 	logHeader := widget.NewLabel("Mini-Logs:")
-	// Version label at the bottom
-	versionLabel := widget.NewLabel(fmt.Sprintf("Version: %s", AppVersion))
-	versionLabel.Alignment = fyne.TextAlignTrailing
-
-	logContainer := container.NewVBox(logHeader, container.NewStack(state.LogBox), versionLabel)
+	state.VersionLabel = widget.NewLabel("Версія: " + AppVersion)
+	state.VersionLabel.Alignment = fyne.TextAlignTrailing
+	logContainer := container.NewVBox(logHeader, container.NewStack(state.LogBox), state.VersionLabel)
 
 	// Main Layout
 	content := container.NewBorder(topBar, logContainer, nil, nil, scrollList)
