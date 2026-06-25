@@ -2,15 +2,23 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"image/color"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -21,12 +29,19 @@ import (
 // --- Constants & Types ---
 
 const (
+	AppVersion     = "v1.0.0"
+	RepoOwner      = "Carbon6600"
+	RepoName       = "starlink-monitor"
 	DefaultIP      = "192.168.100.1:9200"
 	PollInterval   = 3 * time.Second
 	RequestTimeout = 2 * time.Second
 	WindowWidth    = 600
 	WindowHeight   = 500
 )
+
+type GitHubRelease struct {
+	TagName string `json:"tag_name"`
+}
 
 type DeviceState struct {
 	IP              string
@@ -74,6 +89,44 @@ func formatUptime(s uint64) string {
 	m := (s % 3600) / 60
 	sec := s % 60
 	return fmt.Sprintf("%dh %dm %ds", h, m, sec)
+}
+
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	return cmd.Run()
+}
+
+func checkGitHubUpdate(win fyne.Window) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", RepoOwner, RepoName)
+	resp, err := http.Get(url)
+	if err != nil {
+		return // Silent failure for update check
+	}
+	defer resp.Body.Close()
+
+	var release GitHubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return
+	}
+
+	if release.TagName != AppVersion {
+		dialog.ShowConfirm("New Version Available",
+			fmt.Sprintf("A new version %s is available. Would you like to download it?", release.TagName),
+			func(confirmed bool) {
+				if confirmed {
+					releaseURL := fmt.Sprintf("https://github.com/%s/%s/releases/latest", RepoOwner, RepoName)
+					openBrowser(releaseURL)
+				}
+			}, win)
+	}
 }
 
 func (ds *DeviceState) connect() error {
@@ -210,7 +263,7 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 	gpsLabel := widget.NewLabel("Updating...")
 
 	// Firmware/Update
-	fwLabel := widget.NewLabel("Updating...")
+	fwText := canvas.NewText("Updating...", color.White)
 
 	// Auto-Disable Checkbox
 	autoGPSCheck := widget.NewCheck("Auto-GPS Off", func(checked bool) {
@@ -239,7 +292,7 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 	})
 
 	row := container.NewGridWithColumns(6,
-		ipLabel, statusLabel, gpsLabel, fwLabel, autoGPSCheck,
+		ipLabel, statusLabel, gpsLabel, fwText, autoGPSCheck,
 		container.NewHBox(disableBtn, deleteBtn),
 	)
 
@@ -250,14 +303,18 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 			statusLabel.SetText(ds.Status)
 			gpsLabel.SetText(ds.GPSMode)
 
-			fwText := fmt.Sprintf("%s", ds.FirmwareVersion)
+			fwString := fmt.Sprintf("%s", ds.FirmwareVersion)
 			if ds.UpdateAvailable {
-				fwText += " [UPDT!]"
+				fwText.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255} // Green
+				fwString += " [Оновлення вночі]"
+			} else {
+				fwText.Color = color.White
 			}
 			if ds.RebootPending {
-				fwText += " [REB!]"
+				fwString += " [REB!]"
 			}
-			fwLabel.SetText(fwText)
+			fwText.Text = fwString
+			fwText.Refresh()
 			ds.mu.Unlock()
 			time.Sleep(1 * time.Second)
 		}
@@ -344,11 +401,18 @@ func main() {
 	// --- Bottom Section: Logs ---
 	state.LogBox = widget.NewMultiLineEntry()
 	logHeader := widget.NewLabel("Mini-Logs:")
-	logContainer := container.NewVBox(logHeader, container.NewStack(state.LogBox))
+	// Version label at the bottom
+	versionLabel := widget.NewLabel(fmt.Sprintf("Version: %s", AppVersion))
+	versionLabel.Alignment = fyne.TextAlignTrailing
+
+	logContainer := container.NewVBox(logHeader, container.NewStack(state.LogBox), versionLabel)
 
 	// Main Layout
 	content := container.NewBorder(topBar, logContainer, nil, nil, scrollList)
 	win.SetContent(content)
+
+	// Check for updates in a separate goroutine
+	go checkGitHubUpdate(win)
 
 	// Initial Device
 	ipEntry.SetText(DefaultIP)
