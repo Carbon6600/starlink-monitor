@@ -103,6 +103,27 @@ func openBrowser(url string) error {
 	return cmd.Run()
 }
 
+func isVersionGreater(v1, v2 string) bool {
+	v1 = strings.TrimPrefix(v1, "v")
+	v2 = strings.TrimPrefix(v2, "v")
+
+	p1 := strings.Split(v1, ".")
+	p2 := strings.Split(v2, ".")
+
+	for i := 0; i < len(p1) && i < len(p2); i++ {
+		var n1, n2 int
+		fmt.Sscanf(p1[i], "%d", &n1)
+		fmt.Sscanf(p2[i], "%d", &n2)
+		if n1 > n2 {
+			return true
+		}
+		if n1 < n2 {
+			return false
+		}
+	}
+	return len(p1) > len(p2)
+}
+
 func checkGitHubUpdate(win fyne.Window) {
 	client := &http.Client{Timeout: 5 * time.Second}
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", RepoPath)
@@ -121,7 +142,7 @@ func checkGitHubUpdate(win fyne.Window) {
 		return
 	}
 
-	if release.TagName != AppVersion {
+	if isVersionGreater(release.TagName, AppVersion) {
 		state.mu.Lock()
 		if state.VersionLabel != nil {
 			state.VersionLabel.SetText(fmt.Sprintf("Версія: %s (Доступне оновлення: %s)", AppVersion, release.TagName))
