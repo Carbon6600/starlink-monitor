@@ -1,0 +1,11 @@
+# Binaries
+*.exe
+*.exe.log
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Go
+vendor/
+bin/
