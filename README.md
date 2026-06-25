@@ -2,6 +2,10 @@
 
 A lightweight, compact dashboard for monitoring Starlink dishes in real-time via gRPC.
 
+<img width="958" height="502" alt="Знімок екрана 2026-06-25 120751" src="https://github.com/user-attachments/assets/37ece1ee-b400-4abb-a6e6-83f8aa5f5349" />
+
+
+
 ## 🚀 Features
 
 - **Multi-Device Monitoring**: Track multiple Starlink dishes from a single interface.
