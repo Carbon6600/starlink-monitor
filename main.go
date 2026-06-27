@@ -28,13 +28,13 @@ import (
 // --- Constants & Types ---
 
 const (
-	AppVersion     = "v1.0.0"
-	RepoPath       = "Carbon6600/starlink-monitor"
-	DefaultIP      = "192.168.100.1:9200"
-	PollInterval   = 3 * time.Second
-	RequestTimeout = 2 * time.Second
-	WindowWidth    = 600
-	WindowHeight   = 500
+	AppVersion          = "v1.0.0"
+	RepoPath            = "Carbon6600/starlink-monitor"
+	DefaultIP           = "192.168.100.1:9200"
+	PollInterval        = 3 * time.Second
+	RequestTimeout      = 2 * time.Second
+	DefaultWindowWidth  = 417
+	DefaultWindowHeight = 335
 )
 
 type GitHubRelease struct {
@@ -480,7 +480,7 @@ func main() {
 	myApp.SetIcon(resourceAppIco)
 
 	win := myApp.NewWindow("Starlink Micro-Dashboard")
-	win.Resize(fyne.NewSize(WindowWidth, WindowHeight))
+	win.Resize(fyne.NewSize(DefaultWindowWidth, DefaultWindowHeight))
 
 	// --- Top Section: Add Device ---
 	ipEntry := widget.NewEntry()
