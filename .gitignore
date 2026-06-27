@@ -12,3 +12,4 @@ bin/
 .vscode/
 RELEASE_NOTES_UK.md
 star-debug-1.2b78/
+*.syso

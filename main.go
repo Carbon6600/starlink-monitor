@@ -93,9 +93,9 @@ func formatUptime(s uint64) string {
 
 func formatGPSStatus(mode string) (string, color.Color) {
 	if strings.Contains(strings.ToUpper(mode), "NONE") {
-		return "Выключен", color.RGBA{R: 255, G: 0, B: 0, A: 255} // Red
+		return "Выключен", color.RGBA{R: 200, G: 0, B: 0, A: 255} // Darker Red
 	}
-	return "Включен", color.RGBA{R: 0, G: 255, B: 0, A: 255} // Green
+	return "Включен", color.RGBA{R: 0, G: 150, B: 0, A: 255} // Darker Green
 }
 
 func openBrowser(url string) error {
@@ -336,30 +336,34 @@ func pollDevice(ds *DeviceState) {
 // --- GUI Components ---
 
 func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
-	// IP Address
-	ipLabel := widget.NewLabel(ds.IP)
-	ipLabel.Wrapping = fyne.TextWrapWord
-
-	// Status
+	// --- Row 1: IP and Status ---
+	ipLabel := widget.NewLabelWithStyle(ds.IP, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	statusLabel := widget.NewLabel("Updating...")
 
-	// GPS Mode
-	gpsText := canvas.NewText("Updating...", color.White)
+	header := container.NewBorder(nil, nil, ipLabel, statusLabel, canvas.NewRectangle(color.Transparent))
+
+	// --- Row 2: Details (GPS & FW) ---
+	gpsText := canvas.NewText("Updating...", color.RGBA{R: 40, G: 40, B: 40, A: 255})
 	gpsLabel := container.NewMax(gpsText)
 
-	// Firmware/Update
-	fwText := canvas.NewText("Updating...", color.White)
+	fwText := canvas.NewText("Updating...", color.RGBA{R: 40, G: 40, B: 40, A: 255})
+	fwLabel := container.NewMax(fwText)
 
-	// Auto-Disable Checkbox
+	details := container.NewBorder(nil, nil,
+		container.NewHBox(widget.NewLabel("GPS: "), gpsLabel),
+		container.NewHBox(widget.NewLabel("FW: "), fwLabel),
+		canvas.NewRectangle(color.Transparent),
+	)
+
+	// --- Row 3: Controls ---
 	autoGPSCheck := widget.NewCheck("Auto-GPS Off", func(checked bool) {
 		ds.mu.Lock()
 		ds.AutoDisableGPS = checked
 		ds.mu.Unlock()
 		addLog(fmt.Sprintf("%s: Auto-disable GPS set to %v", ds.IP, checked))
 	})
-	autoGPSCheck.Checked = true // Default active
+	autoGPSCheck.Checked = true
 
-	// Manual GPS Buttons
 	enableBtn := widget.NewButton("ON GPS", func() {
 		if err := ds.enableGPS(); err != nil {
 			addLog(fmt.Sprintf("%s: Manual enable failed: %v", ds.IP, err))
@@ -376,7 +380,6 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 		}
 	})
 
-	// Delete Button
 	deleteBtn := widget.NewButton("X", func() {
 		state.mu.Lock()
 		delete(state.Devices, ds.IP)
@@ -385,10 +388,23 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 		refreshDeviceList()
 	})
 
-	row := container.NewGridWithColumns(6,
-		ipLabel, statusLabel, gpsLabel, container.NewMax(fwText), autoGPSCheck,
-		container.NewHBox(enableBtn, disableBtn, deleteBtn),
+	controlsHBox := container.NewHBox(enableBtn, disableBtn, deleteBtn)
+	controls := container.NewBorder(nil, nil, autoGPSCheck, controlsHBox, canvas.NewRectangle(color.Transparent))
+
+	// Create a card layout
+	cardFinal := container.NewVBox(
+		container.NewPadded(
+			container.NewVBox(
+				header,
+				details,
+				controls,
+			),
+		),
 	)
+
+	// Wrap in a stack with a light grey background rectangle to create the card effect
+	bg := canvas.NewRectangle(color.RGBA{R: 200, G: 200, B: 200, A: 255})
+	cardWithBg := container.NewStack(bg, cardFinal)
 
 	// Update labels in a loop
 	go func() {
@@ -401,20 +417,12 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 			gpsText.Color = gpsColor
 			gpsText.Refresh()
 
-			if strings.Contains(strings.ToUpper(ds.GPSMode), "NONE") {
-				enableBtn.SetText("ON GPS")
-				disableBtn.SetText("OFF GPS")
-			} else {
-				enableBtn.SetText("ON GPS")
-				disableBtn.SetText("OFF GPS")
-			}
-
 			fwString := fmt.Sprintf("%s", ds.FirmwareVersion)
 			if ds.UpdateAvailable {
-				fwText.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255} // Green
-				fwString += " [Оновлення вночі]"
+				fwText.Color = color.RGBA{R: 0, G: 120, B: 0, A: 255} // Darker Green
+				fwString += " [Оновлення]"
 			} else {
-				fwText.Color = color.White
+				fwText.Color = color.RGBA{R: 40, G: 40, B: 40, A: 255}
 			}
 			if ds.RebootPending {
 				fwString += " [REB!]"
@@ -426,7 +434,7 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 		}
 	}()
 
-	return row
+	return cardWithBg
 }
 
 func refreshDeviceList() {
@@ -434,17 +442,6 @@ func refreshDeviceList() {
 	defer state.mu.Unlock()
 
 	state.ListBox.Objects = nil
-
-	// Header
-	header := container.NewGridWithColumns(6,
-		widget.NewLabel("IP Address"),
-		widget.NewLabel("Status"),
-		widget.NewLabel("GPS Mode"),
-		widget.NewLabel("Firmware"),
-		widget.NewLabel("Auto-Off"),
-		widget.NewLabel("Actions"),
-	)
-	state.ListBox.Add(header)
 
 	for _, ds := range state.Devices {
 		state.ListBox.Add(createDeviceRow(ds))
