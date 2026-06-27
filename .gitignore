@@ -1,6 +1,6 @@
 # Binaries
 *.exe
-*.exe.log
+*.log
 
 # OS files
 Thumbs.db
@@ -9,4 +9,6 @@ Thumbs.db
 # Go
 vendor/
 bin/
+.vscode/
+RELEASE_NOTES_UK.md
 star-debug-1.2b78/
