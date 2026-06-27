@@ -21,6 +21,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	pb "github.com/clarkzjw/starlink-grpc-golang/pkg/spacex.com/api/device"
 )
@@ -28,7 +29,7 @@ import (
 // --- Constants & Types ---
 
 const (
-	AppVersion     = "v1.0.1"
+	AppVersion     = "v1.0.0"
 	RepoPath       = "Carbon6600/starlink-monitor"
 	DefaultIP      = "192.168.100.1:9200"
 	PollInterval   = 3 * time.Second
@@ -88,6 +89,13 @@ func formatUptime(s uint64) string {
 	m := (s % 3600) / 60
 	sec := s % 60
 	return fmt.Sprintf("%dh %dm %ds", h, m, sec)
+}
+
+func formatGPSStatus(mode string) (string, color.Color) {
+	if strings.Contains(strings.ToUpper(mode), "NONE") {
+		return "Выключен", color.RGBA{R: 255, G: 0, B: 0, A: 255} // Red
+	}
+	return "Включен", color.RGBA{R: 0, G: 255, B: 0, A: 255} // Green
 }
 
 func openBrowser(url string) error {
@@ -183,21 +191,55 @@ func (ds *DeviceState) disconnect() {
 }
 
 func (ds *DeviceState) disableGPS() error {
-	ctx, cancel := context.WithTimeout(context.Background(), RequestTimeout)
+	if ds.client == nil {
+		if err := ds.connect(); err != nil {
+			return fmt.Errorf("connection failed: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), RequestTimeout*3)
 	defer cancel()
+	ctx = metadata.AppendToOutgoingContext(ctx, "user-agent", "starlink-client/1.0")
 
 	req := &pb.Request{
-		Request: &pb.Request_DishSetConfig{
-			DishSetConfig: &pb.DishSetConfigRequest{
-				DishConfig: &pb.DishConfig{
-					LocationRequestMode:      pb.DishConfig_NONE,
-					ApplyLocationRequestMode: true,
-				},
+		Request: &pb.Request_DishInhibitGps{
+			DishInhibitGps: &pb.DishInhibitGpsRequest{
+				InhibitGps: true,
 			},
 		},
 	}
+
 	_, err := ds.client.Handle(ctx, req)
-	return err
+	if err != nil {
+		return fmt.Errorf("RPC error: %v", err)
+	}
+	return nil
+}
+
+func (ds *DeviceState) enableGPS() error {
+	if ds.client == nil {
+		if err := ds.connect(); err != nil {
+			return fmt.Errorf("connection failed: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), RequestTimeout*2)
+	defer cancel()
+	ctx = metadata.AppendToOutgoingContext(ctx, "user-agent", "starlink-client/1.0")
+
+	req := &pb.Request{
+		Request: &pb.Request_DishInhibitGps{
+			DishInhibitGps: &pb.DishInhibitGpsRequest{
+				InhibitGps: false,
+			},
+		},
+	}
+
+	_, err := ds.client.Handle(ctx, req)
+	if err != nil {
+		return fmt.Errorf("RPC error: %v", err)
+	}
+	return nil
 }
 
 // --- Polling Logic ---
@@ -246,7 +288,14 @@ func pollDevice(ds *DeviceState) {
 			oldUptime := ds.Uptime
 
 			ds.Status = "Up: " + formatUptime(dishStatus.GetDeviceState().GetUptimeS())
-			ds.GPSMode = dishStatus.GetConfig().GetLocationRequestMode().String()
+
+			// Use the actual inhibit_gps status from GpsStats for accuracy
+			if dishStatus.GetGpsStats() != nil && dishStatus.GetGpsStats().GetInhibitGps() {
+				ds.GPSMode = "NONE"
+			} else {
+				ds.GPSMode = dishStatus.GetConfig().GetLocationRequestMode().String()
+			}
+
 			ds.FirmwareVersion = info.GetSoftwareVersion()
 			ds.UpdateAvailable = dishStatus.GetSoftwareUpdateState() != pb.SoftwareUpdateState_SOFTWARE_UPDATE_STATE_UNKNOWN
 			ds.RebootPending = dishStatus.GetSwupdateRebootReady()
@@ -258,13 +307,16 @@ func pollDevice(ds *DeviceState) {
 			reason := ""
 
 			if ds.AutoDisableGPS {
-				// Check for reboot (Uptime reset or change)
-				if oldUptime != 0 && ds.Uptime < oldUptime {
+				// Check the actual inhibition state instead of the mode string
+				isInhibited := dishStatus.GetGpsStats() != nil && dishStatus.GetGpsStats().GetInhibitGps()
+				if !isInhibited {
 					shouldDisable = true
-					reason = "Reboot detected"
-				} else if strings.Contains(ds.GPSMode, "AUTO") {
-					shouldDisable = true
-					reason = "GPS mode switched to AUTO"
+					if oldUptime != 0 && ds.Uptime < oldUptime {
+						reason = "Reboot detected"
+					} else {
+						reason = "GPS not inhibited, auto-disable active"
+					}
+					addLog(fmt.Sprintf("%s: [Auto-Check] GPS not inhibited, disabling...", ds.IP))
 				}
 			}
 			ds.mu.Unlock()
@@ -292,7 +344,8 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 	statusLabel := widget.NewLabel("Updating...")
 
 	// GPS Mode
-	gpsLabel := widget.NewLabel("Updating...")
+	gpsText := canvas.NewText("Updating...", color.White)
+	gpsLabel := container.NewMax(gpsText)
 
 	// Firmware/Update
 	fwText := canvas.NewText("Updating...", color.White)
@@ -302,10 +355,19 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 		ds.mu.Lock()
 		ds.AutoDisableGPS = checked
 		ds.mu.Unlock()
+		addLog(fmt.Sprintf("%s: Auto-disable GPS set to %v", ds.IP, checked))
 	})
 	autoGPSCheck.Checked = true // Default active
 
-	// Manual Disable Button
+	// Manual GPS Buttons
+	enableBtn := widget.NewButton("ON GPS", func() {
+		if err := ds.enableGPS(); err != nil {
+			addLog(fmt.Sprintf("%s: Manual enable failed: %v", ds.IP, err))
+		} else {
+			addLog(fmt.Sprintf("%s: GPS enabled manually", ds.IP))
+		}
+	})
+
 	disableBtn := widget.NewButton("OFF GPS", func() {
 		if err := ds.disableGPS(); err != nil {
 			addLog(fmt.Sprintf("%s: Manual disable failed: %v", ds.IP, err))
@@ -325,7 +387,7 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 
 	row := container.NewGridWithColumns(6,
 		ipLabel, statusLabel, gpsLabel, container.NewMax(fwText), autoGPSCheck,
-		container.NewHBox(disableBtn, deleteBtn),
+		container.NewHBox(enableBtn, disableBtn, deleteBtn),
 	)
 
 	// Update labels in a loop
@@ -333,7 +395,19 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 		for {
 			ds.mu.Lock()
 			statusLabel.SetText(ds.Status)
-			gpsLabel.SetText(ds.GPSMode)
+
+			gpsStatus, gpsColor := formatGPSStatus(ds.GPSMode)
+			gpsText.Text = gpsStatus
+			gpsText.Color = gpsColor
+			gpsText.Refresh()
+
+			if strings.Contains(strings.ToUpper(ds.GPSMode), "NONE") {
+				enableBtn.SetText("ON GPS")
+				disableBtn.SetText("OFF GPS")
+			} else {
+				enableBtn.SetText("ON GPS")
+				disableBtn.SetText("OFF GPS")
+			}
 
 			fwString := fmt.Sprintf("%s", ds.FirmwareVersion)
 			if ds.UpdateAvailable {
