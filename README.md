@@ -10,7 +10,7 @@ A lightweight, compact dashboard for monitoring Starlink dishes in real-time via
 
 - **Multi-Device Monitoring**: Track multiple Starlink dishes from a single interface.
 - **Real-time Stats**: Monitor uptime, GPS mode, and firmware version.
-- **Anti-Jamming / Auto-Disable**: Automatically disable GPS when specific conditions are met (e.g., reboot detected or GPS mode switched to AUTO).
+- **Anti-Jamming / Auto-Disable**: Hardware-level GPS inhibition. Automatically disables GPS based on real-time status checks to prevent location tracking.
 - **Compact GUI**: Built with Fyne for a minimal and efficient user experience.
 - **Quick Management**: Easily add or remove dishes from the monitor.
 
@@ -23,7 +23,7 @@ A lightweight, compact dashboard for monitoring Starlink dishes in real-time via
 ### Setup
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/starlink-monitor.git
+   git clone https://github.com/Carbon6600/starlink-monitor.git
    cd starlink-monitor
    ```
 2. Install dependencies:
@@ -32,7 +32,7 @@ A lightweight, compact dashboard for monitoring Starlink dishes in real-time via
    ```
 3. Build the application:
    ```bash
-   go build -o starlink-monitor.exe main.go
+   go build -ldflags="-s -w -H=windowsgui" -o starlink_security_v1.0.0.exe main.go
    ```
    Alternatively, run the provided `build.bat` on Windows.
 
