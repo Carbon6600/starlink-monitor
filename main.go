@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"image/color"
 	"net/http"
-	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -478,10 +477,7 @@ func addDevice(ip string) {
 func main() {
 	myApp := app.New()
 
-	iconData, err := os.ReadFile("app.ico")
-	if err == nil {
-		myApp.SetIcon(fyne.NewStaticResource("app.ico", iconData))
-	}
+	myApp.SetIcon(resourceAppIco)
 
 	win := myApp.NewWindow("Starlink Micro-Dashboard")
 	win.Resize(fyne.NewSize(WindowWidth, WindowHeight))
