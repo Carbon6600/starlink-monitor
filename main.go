@@ -241,6 +241,30 @@ func (ds *DeviceState) enableGPS() error {
 	return nil
 }
 
+func (ds *DeviceState) rebootDish() error {
+	if ds.client == nil {
+		if err := ds.connect(); err != nil {
+			return fmt.Errorf("connection failed: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), RequestTimeout*5)
+	defer cancel()
+	ctx = metadata.AppendToOutgoingContext(ctx, "user-agent", "starlink-client/1.0")
+
+	req := &pb.Request{
+		Request: &pb.Request_Reboot{
+			Reboot: &pb.RebootRequest{},
+		},
+	}
+
+	_, err := ds.client.Handle(ctx, req)
+	if err != nil {
+		return fmt.Errorf("RPC error: %v", err)
+	}
+	return nil
+}
+
 // --- Polling Logic ---
 
 func pollDevice(ds *DeviceState) {
@@ -379,6 +403,14 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 		}
 	})
 
+	rebootBtn := widget.NewButton("REBOOT", func() {
+		if err := ds.rebootDish(); err != nil {
+			addLog(fmt.Sprintf("%s: Reboot failed: %v", ds.IP, err))
+		} else {
+			addLog(fmt.Sprintf("%s: Reboot command sent", ds.IP))
+		}
+	})
+
 	deleteBtn := widget.NewButton("X", func() {
 		state.mu.Lock()
 		delete(state.Devices, ds.IP)
@@ -387,7 +419,7 @@ func createDeviceRow(ds *DeviceState) fyne.CanvasObject {
 		refreshDeviceList()
 	})
 
-	controlsHBox := container.NewHBox(enableBtn, disableBtn, deleteBtn)
+	controlsHBox := container.NewHBox(enableBtn, disableBtn, rebootBtn, deleteBtn)
 	controls := container.NewBorder(nil, nil, autoGPSCheck, controlsHBox, canvas.NewRectangle(color.Transparent))
 
 	// Create a card layout
