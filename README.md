@@ -2,7 +2,9 @@
 
 A lightweight, compact dashboard for monitoring Starlink dishes in real-time via gRPC.
 
-<img width="958" height="502" alt="Знімок екрана 2026-06-25 120751" src="https://github.com/user-attachments/assets/37ece1ee-b400-4abb-a6e6-83f8aa5f5349" />
+<img width="448" height="391" alt="image" src="https://github.com/user-attachments/assets/bc4d6145-4495-4700-bfe4-9d441f568088" />
+
+
 
 
 
